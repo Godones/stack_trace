@@ -186,6 +186,41 @@ unsafe fn backtrace() {
 
 
 
+为了解决这个问题，可以在开始进入用户态之前就读取内核数据，后面如果发生错误，就不需要读取文件发生死锁。上面的代码修改为:
+
+```rust
+lazy_static!{
+    static ref KERNEL_DATA: UPIntrFreeCell<Vec<u8>> = unsafe{UPIntrFreeCell::new(Vec::new())};
+}
+pub fn init_kernel_data(){
+    let mut os_name:Vec<&str> = Vec::new();
+    let all_file = ROOT_INODE.ls();
+    all_file.iter().for_each(|x| {
+        if x.contains("os") {
+            os_name.push(x);
+        }
+    });
+    os_name.sort();
+    os_name.iter().for_each(|name|{
+        let mut file = open_file(*name,OpenFlags::RDONLY).unwrap();
+        let d = file.read_all();
+        trace!("name: {} {}",name,d.len());
+        KERNEL_DATA.exclusive_access().extend_from_slice(d.as_slice());
+    });
+}
+
+unsafe fn backtrace() {
+    let mut trace = Trace::new();
+    trace.init(KERNEL_DATA.exclusive_access().as_slice());
+    let road = trace.trace();
+    road.iter().for_each(|s|{
+        println!("{}",s);
+    });
+}
+```
+
+在main函数中，在开始进入用户程序之前调用`init_kernel_data()`即可。
+
 ## 改进
 
 - [ ] 在编译前获取函数信息并与内核一同链接 --> 适用于所有章节的栈回溯方法
